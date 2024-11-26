@@ -28,12 +28,23 @@ data "aws_subnet" "subnet_details" {
 
 # 동적 CIDR 계산
 locals {
-  existing_cidrs = concat(
+  # 기존 CIDR 안전하게 가져오기 (data가 비어 있는 경우 빈 리스트)
+  existing_cidrs = can(data.aws_vpcs.existing_vpcs.ids) && can(data.aws_subnets.existing_subnets.ids) ? concat(
     [for vpc in data.aws_vpc.vpc_details : vpc.cidr_block],
     [for subnet in data.aws_subnet.subnet_details : subnet.cidr_block]
+  ) : []
+
+  # 최대 생성 가능한 서브넷 개수 계산 (/12에서 newbits=4 → 최대 64개)
+  max_subnets = pow(2, 12 - 4)
+
+  # 새로운 VPC CIDR 계산 (CIDR 초과 또는 destroy 시 기본값 사용)
+  new_vpc_cidr = (
+    length(local.existing_cidrs) < local.max_subnets ?
+    cidrsubnet(var.base_cidr, 4, length(local.existing_cidrs)) :
+    var.base_cidr
   )
-  new_vpc_cidr = cidrsubnet(var.base_cidr, 4, length(local.existing_cidrs))
 }
+
 
 # VPC 생성
 resource "aws_vpc" "my_vpc" {
